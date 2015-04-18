@@ -16,11 +16,12 @@ program define binscatter, eclass sortpreserve
 	
 	syntax varlist(min=2 numeric) [if] [in] [aweight fweight], [by(varname) ///
 		Nquantiles(integer 20) GENxq(name) discrete xq(varname numeric) MEDians ///
-		CONTROLs(varlist numeric ts fv) absorb(varname) noAddmean ///
+		CONTROLs(varlist numeric ts fv) Absorb(varname) noAddmean ///
 		LINEtype(string) rd(numlist ascending) reportreg ///
 		COLors(string) MColors(string) LColors(string) Msymbols(string) ///
 		savegraph(string) savedata(string) replace ///
 		nofastxtile randvar(varname numeric) randcut(real 1) randn(integer -1) ///
+		hdfe ///
 		/* LEGACY OPTIONS */ nbins(integer 20) create_xq x_q(varname numeric) symbols(string) method(string) unique(string) ///
 		*]
 
@@ -170,8 +171,24 @@ program define binscatter, eclass sortpreserve
 	
 
 	****** Create residuals  ******
-	
-	if (`"`controls'`absorb'"'!="") quietly {
+	if (`"`controls'`absorb'"'!="" & "`hdfe'"!="") {
+		assert "`addmean'"=="noaddmean"
+		cap which hdfe
+		if (_rc==11) ssc install hdfe
+		hdfe `x_var' `y_vars' `wt' if `touse', partial(`controls') absorb(`absorb') gen(__resid__) // `addmean'
+		* possible simplification: have three options: stub() replace generate()
+		* possible improvement: there may be some limitations on binscatter's by(); maybe hdfe can lift them (or they are intended?)
+		tempvar x_r
+		rename __resid__`x_var' `x_r'
+		label variable `x_r' "`x_var'"
+		foreach var of varlist `y_vars' {
+			tempvar residvar
+			rename __resid__`var' `residvar'
+			label variable `residvar' "`var'"
+			local y_vars_r `y_vars_r' `residvar'
+		}
+	}
+	else if (`"`controls'`absorb'"'!="") quietly {
 	
 		* Parse absorb to define the type of regression to be used
 		if `"`absorb'"'!="" {
@@ -207,7 +224,6 @@ program define binscatter, eclass sortpreserve
 		local x_r `x_var'
 		local y_vars_r `y_vars'
 	}
-
 
 	****** Regressions for fit lines ******
 	
@@ -273,24 +289,37 @@ program define binscatter, eclass sortpreserve
 					if (`ynum'>1) {
 						if ("`controls'`absorb'"!="") local depvar_name : var label `depvar'
 						else local depvar_name `depvar'
-						di as text "{bf:y_var = `depvar_name'}"
 					}
 					
 					* perform regression
-					if ("`reg_verbosity'"=="quietly") capture reg `depvar' `x_r2' `x_r' `wt' if `conds'
-					else capture noisily reg `depvar' `x_r2' `x_r' `wt' if `conds'
+					ereturn clear
+					capture regress `depvar' `x_r2' `x_r' `wt' if `conds', noheader notable
+					local rc = _rc
+
+					* replay regression with correct names
+					if ("`reg_verbosity'"!="quietly") {
+						ereturn local depvar = "`depvar_name'"
+						local indepvar_names `x_var' _cons
+						if ("`linetype'"=="qfit") local indepvar_names `x_var'^2 `indepvar_names'
+						tempname b
+						matrix `b' = e(b)
+						*local backup_colnames : colnames `b'
+						matrix colnames `b' = `indepvar_names'
+						ereturn repost b=`b', rename
+						regress // Replay
+					}
 					
 					* store results
-					if (_rc==0) matrix e_b_temp=e(b)
-					else if (_rc==2000) {
+					if (`rc'==0) matrix e_b_temp=e(b)
+					else if (`rc'==2000) {
 						if ("`reg_verbosity'"=="quietly") di as error "no observations for one of the fit lines. add 'reportreg' for more info."
 						
 						if ("`linetype'"=="lfit") matrix e_b_temp=.,.
 						else /*("`linetype'"=="qfit")*/ matrix e_b_temp=.,.,.
 					}
 					else {
-						error _rc
-						exit _rc
+						error `rc'
+						exit `rc'
 					}
 					
 					* relabel matrix row			
