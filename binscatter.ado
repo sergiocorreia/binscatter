@@ -16,7 +16,7 @@ program define binscatter, eclass sortpreserve
 	
 	syntax varlist(min=2 numeric) [if] [in] [aweight fweight], [by(varname) ///
 		Nquantiles(integer 20) GENxq(name) discrete xq(varname numeric) MEDians ///
-		CONTROLs(varlist numeric ts fv) Absorb(varname) noAddmean ///
+		CONTROLs(varlist numeric ts fv) ABSorb(varlist) noAddmean ///
 		LINEtype(string) rd(numlist ascending) reportreg ///
 		COLors(string) MColors(string) LColors(string) Msymbols(string) ///
 		savegraph(string) savedata(string) replace ///
@@ -172,10 +172,13 @@ program define binscatter, eclass sortpreserve
 
 	****** Create residuals  ******
 	if (`"`controls'`absorb'"'!="" & "`hdfe'"!="") {
-		assert "`addmean'"=="noaddmean"
-		cap which hdfe
-		if (_rc==11) ssc install hdfe
-		hdfe `x_var' `y_vars' `wt' if `touse', partial(`controls') absorb(`absorb') gen(__resid__) // `addmean'
+		hdfe `x_var' `y_vars' `wt' if `touse', partial(`controls') absorb(`absorb') gen(__resid__)
+		if ("`addmean'"!="noaddmean") {
+			foreach var of varlist `x_var' `y_vars' {
+				summarize `var' `wt' if `touse', meanonly
+				qui replace __resid__`var' = __resid__`var' + r(mean)
+			}
+		}
 		* possible simplification: have three options: stub() replace generate()
 		* possible improvement: there may be some limitations on binscatter's by(); maybe hdfe can lift them (or they are intended?)
 		tempvar x_r
