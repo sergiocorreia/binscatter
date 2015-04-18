@@ -21,7 +21,6 @@ program define binscatter, eclass sortpreserve
 		COLors(string) MColors(string) LColors(string) Msymbols(string) ///
 		savegraph(string) savedata(string) replace ///
 		nofastxtile randvar(varname numeric) randcut(real 1) randn(integer -1) ///
-		hdfe ///
 		/* LEGACY OPTIONS */ nbins(integer 20) create_xq x_q(varname numeric) symbols(string) method(string) unique(string) ///
 		*]
 
@@ -171,7 +170,12 @@ program define binscatter, eclass sortpreserve
 	
 
 	****** Create residuals  ******
-	if (`"`controls'`absorb'"'!="" & "`hdfe'"!="") {
+	if (`"`controls'`absorb'"'!="" & `: word count `absorb''>1) {
+		cap which hdfe.ado
+		if _rc {
+			di as error "hdfe.ado required when using multiple absorb variables: {stata ssc install hdfe}"
+			exit 111
+		}
 		hdfe `x_var' `y_vars' `wt' if `touse', partial(`controls') absorb(`absorb') gen(__resid__)
 		if ("`addmean'"!="noaddmean") {
 			foreach var of varlist `x_var' `y_vars' {
